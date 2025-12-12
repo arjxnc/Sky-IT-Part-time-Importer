@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Rahul's Sky IT PT Importer</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<style>
+/* --- USER CSS --- */
+:root {
+  --bg-color:#f4f7f8; --container-bg:#fff; --text-color:#222;
+  --header-bg:#0b5ed7; --header-color:#fff; --border-color:#e2e8f0;
+  --btn-bg:#007bff; --btn-color:#fff; --row-even:#f8f9fa; --row-odd:#fff;
+  --file-bg:#fff; --file-color:#222;
+  --btn-clear-bg: #6c757d;
+  --btn-action-bg: #17a2b8; /* Teal for time buttons, or use blue */
+}
+body {
+  font-family:"Segoe UI",Roboto,Arial,sans-serif;
+  background:var(--bg-color);
+  display:flex; justify-content:center;
+  padding:40px 16px;
+  transition:all 0.3s;
+  margin: 0;
+  min-height: 100vh;
+}
+.container {
+  width:100%; max-width:1150px;
+  background:var(--container-bg);
+  padding:28px;
+  border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.08);
+  position:relative;
+  transition:all 0.3s;
+  color: var(--text-color);
+}
+h1 { margin:0 0 18px; font-size:22px; color:var(--text-color); font-weight:600; }
+.controls {
+  display:flex; gap:12px; align-items:center;
+  margin-bottom:12px; flex-wrap:wrap;
+}
+input[type=file], input[type=text], select {
+  font-size:14px; background:var(--file-bg); color:var(--file-color);
+  border:1px solid #ccc; border-radius:6px; padding:6px 8px;
+  transition:all 0.3s;
+}
+input[type=text] {
+  width: 180px;
+}
+select {
+  min-width: 150px;
+}
+button {
+  background:var(--btn-bg); color:var(--btn-color);
+  border:0; padding:10px 14px; border-radius:8px;
+  cursor:pointer; transition:all 0.3s;
+  font-size: 14px;
+}
+#clearBtn {
+  background: var(--btn-clear-bg);
+}
+/* Download button now matches the main blue theme */
+#downloadBtn {
+  background: var(--btn-bg); 
+}
+/* Time adjustment buttons */
+.time-btn {
+  background: var(--btn-bg); /* Keeping them blue to match site theme */
+  min-width: 40px;
+}
+button:hover:not([disabled]) { opacity:0.9; }
+button:disabled { opacity:0.5; cursor:not-allowed; }
+
+#tableContainer {
+  overflow:auto; margin-top:14px; max-height:520px;
+  border-radius:8px; transition:all 0.3s;
+}
+table { border-collapse:collapse; width:100%; min-width:900px; transition:all 0.3s; }
+th, td {
+  border:1px solid var(--border-color);
+  padding:8px 10px; text-align:left; font-size:13px;
+  transition:all 0.3s;
+}
+th { background:var(--header-bg); color:var(--header-color); position:sticky; top:0; z-index:1; }
+tr:nth-child(even) td { background:var(--row-even); }
+tr:nth-child(odd) td { background:var(--row-odd); }
+td { color: var(--text-color); }
+
+/* Dark Mode Overrides */
+.dark-mode {
+  --bg-color:#121212; --container-bg:#1e1e1e; --text-color:#f0f0f0;
+  --header-bg:#333333; --header-color:#ffffff; --border-color:#444444;
+  --btn-bg:#0d6efd; --btn-color:#fff; --row-even:#2a2a2a; --row-odd:#1e1e1e;
+  --file-bg:#2a2a2a; --file-color:#f0f0f0;
+  --btn-clear-bg: #495057;
+}
+.dark-mode input[type=file], .dark-mode input[type=text], .dark-mode select {
+  background:var(--file-bg); color:var(--file-color); border:1px solid #555;
+}
+.dark-mode i {
+  color: white;
+}
+
+/* Toggle Button */
+#darkModeToggle {
+  position:absolute; top:16px; right:16px; cursor:pointer;
+  background:#ccc; border:none; padding:6px 10px;
+  border-radius:6px; font-size:13px; display:flex; align-items:center; gap:6px;
+  transition: background 0.3s, color 0.3s;
+  color: #222;
+}
+.sun-icon { color:#FFD43B; }
+.moon-icon { color:#555; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <button id="darkModeToggle">
+    <span id="modeIcon">🌙</span> <span id="modeText">Dark Mode</span>
+  </button>
+  
+  <h1>Rahul's Sky IT Part-time Importer</h1>
+  
+  <div class="controls">
+    <input id="excelFile" type="file" accept=".xlsx,.xls,.csv" />
+    <input id="seasonInput" type="text" placeholder="Season (e.g. 2025/2026)" maxlength="9" />
+    <select id="competitionFilter">
+      <option value="">All Leagues</option>
+    </select>
+    <button id="minusHourBtn" class="time-btn" disabled>-1 Hour</button>
+    <button id="plusHourBtn" class="time-btn" disabled>+1 Hour</button>
+    <button id="downloadBtn" disabled>Download Excel</button>
+    <button id="clearBtn" disabled>Clear</button>
+  </div>
+  
+  <div id="tableContainer">
+    <div style="padding:20px; text-align:center; font-style:italic; color:var(--text-color);">
+      No data loaded. Upload a spreadsheet to view.
+    </div>
+  </div>
+</div>
+
+<script>
+// --- STATE MANAGEMENT ---
+let data = [];
+let isDark = false;
+let timeOffset = 0; // Tracks hour offset
+
+// --- DOM ELEMENTS ---
+const fileInput = document.getElementById('excelFile');
+const seasonInput = document.getElementById('seasonInput');
+const competitionFilter = document.getElementById('competitionFilter');
+const downloadBtn = document.getElementById('downloadBtn');
+const clearBtn = document.getElementById('clearBtn');
+const minusHourBtn = document.getElementById('minusHourBtn');
+const plusHourBtn = document.getElementById('plusHourBtn');
+const tableContainer = document.getElementById('tableContainer');
+const darkModeToggle = document.getElementById('darkModeToggle');
+const modeIcon = document.getElementById('modeIcon');
+const modeText = document.getElementById('modeText');
+
+// --- DARK MODE LOGIC ---
+function updateTheme() {
+  if (isDark) {
+    document.body.classList.add('dark-mode');
+    modeIcon.textContent = '☀';
+    modeIcon.className = 'sun-icon';
+    modeText.textContent = 'Light Mode';
+  } else {
+    document.body.classList.remove('dark-mode');
+    modeIcon.textContent = '🌙';
+    modeIcon.className = 'moon-icon';
+    modeText.textContent = 'Dark Mode';
+  }
+}
+
+// Init theme
+if (localStorage.getItem('darkMode') === 'true') {
+  isDark = true;
+  updateTheme();
+}
+
+darkModeToggle.addEventListener('click', () => {
+  isDark = !isDark;
+  localStorage.setItem('darkMode', isDark);
+  updateTheme();
+});
+
+// --- HELPER FUNCTIONS ---
+
+// Format Excel Date (Serial -> DD/MM/YYYY)
+function formatDate(val) {
+  if (!val) return '-';
+  if (typeof val === 'number') {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d) return `${String(d.d).padStart(2, '0')}/${String(d.m).padStart(2, '0')}/${d.y}`;
+  }
+  return val;
+}
+
+// Format Excel Time (Fraction -> HH:MM)
+// Accepts an optional offset in hours
+function formatTime(val, offsetHours = 0) {
+  if (typeof val === 'number') {
+    // Add offset (1 hour = 1/24)
+    let adjustedVal = val + (offsetHours / 24);
+    
+    // Handle wrap around for display (simple modulo logic)
+    // Note: This purely adjusts the time portion. Date doesn't shift in this simple view unless we implemented full Date obj logic.
+    while(adjustedVal < 0) adjustedVal += 1;
+    while(adjustedVal >= 1) adjustedVal -= 1;
+
+    const totalSeconds = Math.round(adjustedVal * 86400);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+  
+  // Basic support for HH:MM string parsing if it's not a number
+  if (typeof val === 'string' && val.includes(':')) {
+     const parts = val.split(':');
+     if(parts.length >= 2) {
+        let h = parseInt(parts[0]);
+        let m = parseInt(parts[1]);
+        if(!isNaN(h) && !isNaN(m)) {
+            h += offsetHours;
+            while(h < 0) h += 24;
+            while(h >= 24) h -= 24;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+     }
+  }
+  
+  return val !== undefined ? val : '-';
+}
+
+// Update the Competition Filter Dropdown
+function updateCompetitionDropdown() {
+  // Create unique keys by combining Competition and Matchday
+  const keys = [...new Set(data.map(d => {
+      const comp = d.competition || '';
+      const md = d.matchday || '';
+      // Join them, trim to handle cases where one is missing
+      return `${comp} ${md}`.trim();
+  }).filter(k => k !== ''))].sort();
+
+  competitionFilter.innerHTML = '<option value="">All Leagues</option>';
+  keys.forEach(key => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = key;
+    competitionFilter.appendChild(option);
+  });
+}
+
+// Recalculate Asset Names based on current timeOffset
+function updateAssetNames() {
+  data.forEach(row => {
+    // Re-calculate formatted time string with offset
+    let timeStr = formatTime(row.start, timeOffset);
+
+    // Re-construct Date string
+    let shortDateStr = '';
+    const dateRaw = row.date;
+    if (typeof dateRaw === 'number') {
+        const d = XLSX.SSF.parse_date_code(dateRaw);
+        if (d) {
+            const year2Digit = String(d.y).slice(-2);
+            shortDateStr = `${String(d.d).padStart(2,'0')}/${String(d.m).padStart(2,'0')}/${year2Digit}`;
+        }
+    } else if (dateRaw) {
+        shortDateStr = dateRaw.toString();
+    }
+    
+    // Re-construct the Asset Name
+    if(row.game && row.channel) {
+       row.assetName = `${row.game}, KO ${timeStr} (UTC), ${row.channel}, ${shortDateStr}`; 
+    }
+  });
+}
+
+// --- EVENT LISTENERS ---
+
+// Season Input
+seasonInput.addEventListener('input', (e) => {
+  let val = e.target.value.replace(/\D/g, '');
+  if (val.length > 4) val = val.slice(0, 4) + '/' + val.slice(4, 8);
+  e.target.value = val;
+  if (data.length > 0) renderTable();
+});
+
+// Competition Filter
+competitionFilter.addEventListener('change', () => {
+  if (data.length > 0) renderTable();
+});
+
+// Time Adjustment Buttons
+minusHourBtn.addEventListener('click', () => {
+  timeOffset -= 1;
+  updateAssetNames();
+  renderTable();
+});
+
+plusHourBtn.addEventListener('click', () => {
+  timeOffset += 1;
+  updateAssetNames();
+  renderTable();
+});
+
+// Download Handler
+downloadBtn.addEventListener('click', () => {
+  const season = seasonInput.value.trim();
+  const selectedFilter = competitionFilter.value;
+  
+  // Filter based on the combined "Competition + Matchday" string
+  const filteredData = selectedFilter 
+    ? data.filter(d => {
+        const key = `${d.competition || ''} ${d.matchday || ''}`.trim();
+        return key === selectedFilter;
+    })
+    : data;
+
+  if (filteredData.length === 0) return alert("No data to download");
+
+  const aoa = [['Collection', 'Asset Name', 'Date', 'Start', 'Duration', 'Appliance', 'Channel']];
+
+  filteredData.forEach(row => {
+    const parts = ['Sky IT -', row.competition, row.matchday, season].filter(p => p && p.trim() !== '');
+    const collectionName = parts.join(' ');
+    
+    // Use the time with offset for the 'Start' column in export too
+    const displayStart = formatTime(row.start, timeOffset);
+
+    aoa.push([
+      collectionName,
+      row.assetName || '-',
+      formatDate(row.date),
+      displayStart, // Export Adjusted Start Time
+      row.duration || '-',
+      row.appliance || '-',
+      row.applianceChannel !== undefined ? row.applianceChannel : '-'
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "SkyIT_Schedule");
+  XLSX.writeFile(wb, "Sky_IT_Import.xlsx");
+});
+
+// --- FILE HANDLING ---
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  tableContainer.innerHTML = '<div style="padding:20px; text-align:center;">Processing...</div>';
+
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const bstr = evt.target.result;
+      const wb = XLSX.read(bstr, { type: 'binary', cellDates: false });
+      const wsName = wb.SheetNames[0];
+      const ws = wb.Sheets[wsName];
+      const jsonData = XLSX.utils.sheet_to_json(ws);
+
+      data = jsonData.map(row => {
+        const normalized = {};
+        Object.keys(row).forEach(key => normalized[key.toLowerCase().trim()] = row[key]);
+
+        const game = normalized['game'] || normalized['match'] || normalized['asset name'] || '';
+        const channel = normalized['channel'] || normalized['feed'] || '';
+        const dateRaw = normalized['date'] || normalized['daydate'];
+        const startRaw = normalized['start'] || normalized['broadcaststartcet'];
+        
+        // Return structured data including raw components needed for reconstruction
+        return {
+          competition: normalized['competition'] || normalized['league'] || '',
+          matchday: normalized['matchday'] || normalized['md'] || normalized['round'] || '',
+          game: game,     // Store raw game name
+          channel: channel, // Store raw channel
+          date: dateRaw,
+          start: startRaw,
+          duration: normalized['duration'],
+          appliance: normalized['appliance'],
+          applianceChannel: normalized['appliance channel'] || normalized['appliancechannel'],
+          assetName: '' // Will be populated by updateAssetNames
+        };
+      });
+
+      // Initial calculation with 0 offset
+      timeOffset = 0;
+      updateAssetNames();
+      updateCompetitionDropdown();
+      renderTable();
+      
+      clearBtn.disabled = false;
+      downloadBtn.disabled = false;
+      minusHourBtn.disabled = false;
+      plusHourBtn.disabled = false;
+
+    } catch (err) {
+      console.error(err);
+      tableContainer.innerHTML = '<div style="color:red; text-align:center; padding:20px;">Error parsing file. Ensure it is a valid Excel/CSV.</div>';
+    }
+  };
+  reader.readAsBinaryString(file);
+});
+
+// --- RENDER TABLE ---
+function renderTable() {
+  if (data.length === 0) {
+    tableContainer.innerHTML = '<div style="padding:20px; text-align:center;">No rows found.</div>';
+    downloadBtn.disabled = true;
+    minusHourBtn.disabled = true;
+    plusHourBtn.disabled = true;
+    return;
+  }
+
+  const season = seasonInput.value.trim();
+  const selectedFilter = competitionFilter.value;
+
+  // Filter based on the combined "Competition + Matchday" string
+  const filteredData = selectedFilter 
+    ? data.filter(d => {
+        const key = `${d.competition || ''} ${d.matchday || ''}`.trim();
+        return key === selectedFilter;
+    })
+    : data;
+
+  if (filteredData.length === 0) {
+    tableContainer.innerHTML = '<div style="padding:20px; text-align:center;">No rows match the selected filters.</div>';
+    return;
+  }
+
+  downloadBtn.disabled = false;
+  minusHourBtn.disabled = false;
+  plusHourBtn.disabled = false;
+
+  let html = '<table><thead><tr>';
+  html += '<th>Collection</th><th>Asset Name</th><th>Date</th><th>Start</th><th>Duration</th><th>Appliance</th><th>Channel</th>';
+  html += '</tr></thead><tbody>';
+
+  filteredData.forEach(row => {
+    const parts = ['Sky IT -', row.competition, row.matchday, season].filter(p => p && p.trim() !== '');
+    const collectionName = parts.join(' ');
+    
+    // Apply offset to Start column display as well
+    const displayStart = formatTime(row.start, timeOffset);
+
+    html += '<tr>';
+    html += `<td>${collectionName}</td>`;
+    html += `<td>${row.assetName || '-'}</td>`;
+    html += `<td>${formatDate(row.date)}</td>`;
+    html += `<td>${displayStart}</td>`;
+    html += `<td>${row.duration || '-'}</td>`;
+    html += `<td>${row.appliance || '-'}</td>`;
+    html += `<td>${row.applianceChannel !== undefined ? row.applianceChannel : '-'}</td>`;
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  tableContainer.innerHTML = html;
+}
+
+// --- CLEAR FUNCTION ---
+clearBtn.addEventListener('click', () => {
+  data = [];
+  timeOffset = 0;
+  fileInput.value = '';
+  competitionFilter.innerHTML = '<option value="">All Leagues</option>';
+  tableContainer.innerHTML = '<div style="padding:20px; text-align:center; font-style:italic; color:var(--text-color);">No data loaded. Upload a spreadsheet to view.</div>';
+  clearBtn.disabled = true;
+  downloadBtn.disabled = true;
+  minusHourBtn.disabled = true;
+  plusHourBtn.disabled = true;
+});
+
+</script>
+</body>
+</html>
